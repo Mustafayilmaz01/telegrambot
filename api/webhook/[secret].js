@@ -25,6 +25,7 @@ function parseTs(v) {
   const d = new Date(v);
   return isNaN(d) ? null : d;
 }
+
 function formatPoint(p, i) {
   const d = parseTs(p.timestamp);
   const tr = d ? d.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }) : "Invalid";
@@ -32,6 +33,7 @@ function formatPoint(p, i) {
   const lng = parseFloat(p.longitude).toFixed(6);
   return `${i + 1}. 🕒 ${tr}\n   📌 (${lat}, ${lng})\n   🌍 https://maps.google.com/?q=${lat},${lng}`;
 }
+
 async function sendMessage(chatId, text, options = {}) {
   await fetch(`${TG_API}/sendMessage`, {
     method: "POST",
@@ -39,14 +41,26 @@ async function sendMessage(chatId, text, options = {}) {
     body: JSON.stringify({ chat_id: chatId, text, ...options }),
   });
 }
+
 async function readAllPositions(db, uid) {
   const snap = await db.collection("users").doc(uid).collection("positions_uploads").get();
   let merged = [];
-  snap.forEach(doc => {
+  snap.forEach((doc) => {
     const data = doc.data() || {};
     if (Array.isArray(data.positions)) merged = merged.concat(data.positions);
   });
   return merged;
+}
+
+// 🔎 SADECE SON 24 SAAT FİLTRESİ
+function filterLast24h(positions) {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 saat önce
+  return positions
+    .map((p) => ({ ...p, __d: parseTs(p.timestamp) }))
+    .filter((p) => p.__d && p.__d >= cutoff && p.__d <= now)
+    .sort((a, b) => a.__d - b.__d)
+    .map(({ __d, ...rest }) => rest);
 }
 
 // Main handler
@@ -67,25 +81,45 @@ export default async function handler(req, res) {
 
   try {
     if (/^\/start$/i.test(text)) {
-      await sendMessage(chatId, "🤖 Dijital Hafızam Bot\n\n📍 Komutlar:\n• /last <uid>\n• /lastemail <email>\n• /all <uid>\n• /ping");
+      await sendMessage(
+        chatId,
+        "🤖 Dijital Hafızam Bot\n\n📍 Komutlar:\n• /last <uid> (son 24 saat)\n• /all <uid> (özet)\n• /ping"
+      );
       return res.status(200).end();
     }
+
     if (/^\/ping$/i.test(text)) {
       await sendMessage(chatId, "🏓 Pong!");
       return res.status(200).end();
     }
+
+    // /last <uid> → SADECE SON 24 SAAT
     const mLast = text.match(/^\/last\s+(\S+)$/i);
     if (mLast) {
       const uid = mLast[1];
-      const data = await readAllPositions(db, uid);
+      const all = await readAllPositions(db, uid);
+      const data = filterLast24h(all);
+
       if (!data.length) {
         await sendMessage(chatId, "⚠️ Son 24 saatte kayıt bulunamadı.");
         return res.status(200).end();
       }
-      const lines = data.slice(-10).map(formatPoint);
-      await sendMessage(chatId, lines.join("\n\n"));
+
+      // Telegram mesaj limiti için parçalayarak gönder
+      const lines = data.map(formatPoint);
+      let chunk = "";
+      for (const line of lines) {
+        if ((chunk + line + "\n\n").length > 3800) {
+          await sendMessage(chatId, chunk);
+          chunk = "";
+        }
+        chunk += line + "\n\n";
+      }
+      if (chunk.trim()) await sendMessage(chatId, chunk);
       return res.status(200).end();
     }
+
+    // /all <uid> → mevcut davranış (son 10 kaydı özetle)
     const mAll = text.match(/^\/all\s+(\S+)$/i);
     if (mAll) {
       const uid = mAll[1];
