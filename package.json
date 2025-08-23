@@ -1,0 +1,12 @@
+{
+  "name": "telegram-bot-vercel",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node api/webhook/[secret].js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0",
+    "node-fetch": "^3.3.2"
+  }
+}
