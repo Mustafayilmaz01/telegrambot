@@ -52,7 +52,7 @@ async function sendPhoto(chatId, photoUrl, caption = "") {
   const data = await res.json();
   if (!data.ok) {
     console.error("sendPhoto error:", data);
-    await sendMessage(chatId, "🚨 Harita gönderilemedi: " + (data.description || "bilinmeyen hata"));
+    await sendMessage(chatId, "🚨 Harita gönderilemedi. URL: " + photoUrl);
   }
 }
 
@@ -77,20 +77,23 @@ function filterLast24h(positions) {
     .map(({ __d, ...rest }) => rest);
 }
 
-// 🌍 QuickChart harita URL (örnekleme dahil)
+// 🌍 QuickChart harita URL (örnekleme + parseFloat)
 function buildQuickChartMapURL(points, {
   width = 800, height = 500, stroke = 'ff0000', weight = 4,
 } = {}) {
   if (!points || !points.length) return null;
 
-  // Çok nokta varsa örnekle → URL aşırı uzun olmasın
   const maxPts = 100;
   const step = Math.ceil(points.length / maxPts);
   const sampled = points.filter((_, i) => i % step === 0);
 
-  const path = sampled.map(p => `${p.latitude},${p.longitude}`).join('|');
+  const path = sampled
+    .map(p => `${parseFloat(p.latitude)},${parseFloat(p.longitude)}`)
+    .join('|');
+
   const markers = [sampled[0], sampled[sampled.length - 1]]
-    .map(p => `${p.latitude},${p.longitude}`).join('|');
+    .map(p => `${parseFloat(p.latitude)},${parseFloat(p.longitude)}`)
+    .join('|');
 
   const avgLat = sampled.reduce((s, p) => s + parseFloat(p.latitude), 0) / sampled.length;
   const avgLng = sampled.reduce((s, p) => s + parseFloat(p.longitude), 0) / sampled.length;
