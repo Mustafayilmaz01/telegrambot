@@ -42,12 +42,18 @@ async function sendMessage(chatId, text, options = {}) {
   });
 }
 
+// 📷 Fotoğraf gönderici (hata yakalama ile)
 async function sendPhoto(chatId, photoUrl, caption = "") {
-  await fetch(`${TG_API}/sendPhoto`, {
+  const res = await fetch(`${TG_API}/sendPhoto`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption }),
   });
+  const data = await res.json();
+  if (!data.ok) {
+    console.error("sendPhoto error:", data);
+    await sendMessage(chatId, "🚨 Harita gönderilemedi: " + (data.description || "bilinmeyen hata"));
+  }
 }
 
 async function readAllPositions(db, uid) {
@@ -63,7 +69,7 @@ async function readAllPositions(db, uid) {
 // 🔎 SADECE SON 24 SAAT FİLTRESİ
 function filterLast24h(positions) {
   const now = new Date();
-  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 saat önce
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   return positions
     .map((p) => ({ ...p, __d: parseTs(p.timestamp) }))
     .filter((p) => p.__d && p.__d >= cutoff && p.__d <= now)
@@ -71,18 +77,23 @@ function filterLast24h(positions) {
     .map(({ __d, ...rest }) => rest);
 }
 
-// 🌍 QuickChart harita URL’si oluşturucu
+// 🌍 QuickChart harita URL (örnekleme dahil)
 function buildQuickChartMapURL(points, {
   width = 800, height = 500, stroke = 'ff0000', weight = 4,
 } = {}) {
   if (!points || !points.length) return null;
 
-  const path = points.map(p => `${p.latitude},${p.longitude}`).join('|');
-  const markers = [points[0], points[points.length - 1]]
+  // Çok nokta varsa örnekle → URL aşırı uzun olmasın
+  const maxPts = 100;
+  const step = Math.ceil(points.length / maxPts);
+  const sampled = points.filter((_, i) => i % step === 0);
+
+  const path = sampled.map(p => `${p.latitude},${p.longitude}`).join('|');
+  const markers = [sampled[0], sampled[sampled.length - 1]]
     .map(p => `${p.latitude},${p.longitude}`).join('|');
 
-  const avgLat = points.reduce((s, p) => s + parseFloat(p.latitude), 0) / points.length;
-  const avgLng = points.reduce((s, p) => s + parseFloat(p.longitude), 0) / points.length;
+  const avgLat = sampled.reduce((s, p) => s + parseFloat(p.latitude), 0) / sampled.length;
+  const avgLng = sampled.reduce((s, p) => s + parseFloat(p.longitude), 0) / sampled.length;
 
   const u = new URL('https://quickchart.io/map');
   u.searchParams.set('width', width);
@@ -124,7 +135,7 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
-    // /last <uid> → SON 24 SAAT
+    // /last <uid>
     const mLast = text.match(/^\/last\s+(\S+)$/i);
     if (mLast) {
       const uid = mLast[1];
@@ -142,7 +153,7 @@ export default async function handler(req, res) {
         await sendPhoto(chatId, mapUrl, `📍 Son 24 saatlik rota (${data.length} nokta)`);
       }
 
-      // Mevcut text listesi (hiç bozulmadan)
+      // Eski liste gönderimi
       const lines = data.map(formatPoint);
       let chunk = "";
       for (const line of lines) {
@@ -156,7 +167,7 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
-    // /all <uid> → mevcut davranış (son 10 kaydı özetle)
+    // /all <uid>
     const mAll = text.match(/^\/all\s+(\S+)$/i);
     if (mAll) {
       const uid = mAll[1];
@@ -170,6 +181,7 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
   } catch (e) {
+    console.error("Handler error:", e);
     await sendMessage(chatId, "🚨 Sunucu hatası: " + e.message);
   }
   return res.status(200).end();
