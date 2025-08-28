@@ -42,20 +42,6 @@ async function sendMessage(chatId, text, options = {}) {
   });
 }
 
-// 📷 Fotoğraf gönderici (hata yakalama ile)
-async function sendPhoto(chatId, photoUrl, caption = "") {
-  const res = await fetch(`${TG_API}/sendPhoto`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption }),
-  });
-  const data = await res.json();
-  if (!data.ok) {
-    console.error("sendPhoto error:", data);
-    await sendMessage(chatId, "🚨 Harita gönderilemedi. URL: " + photoUrl);
-  }
-}
-
 async function readAllPositions(db, uid) {
   const snap = await db.collection("users").doc(uid).collection("positions_uploads").get();
   let merged = [];
@@ -69,43 +55,12 @@ async function readAllPositions(db, uid) {
 // 🔎 SADECE SON 24 SAAT FİLTRESİ
 function filterLast24h(positions) {
   const now = new Date();
-  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 saat önce
   return positions
     .map((p) => ({ ...p, __d: parseTs(p.timestamp) }))
     .filter((p) => p.__d && p.__d >= cutoff && p.__d <= now)
     .sort((a, b) => a.__d - b.__d)
     .map(({ __d, ...rest }) => rest);
-}
-
-// 🌍 QuickChart harita URL (örnekleme + parseFloat)
-function buildQuickChartMapURL(points, {
-  width = 800, height = 500, stroke = 'ff0000', weight = 4,
-} = {}) {
-  if (!points || !points.length) return null;
-
-  const maxPts = 100;
-  const step = Math.ceil(points.length / maxPts);
-  const sampled = points.filter((_, i) => i % step === 0);
-
-  const path = sampled
-    .map(p => `${parseFloat(p.latitude)},${parseFloat(p.longitude)}`)
-    .join('|');
-
-  const markers = [sampled[0], sampled[sampled.length - 1]]
-    .map(p => `${parseFloat(p.latitude)},${parseFloat(p.longitude)}`)
-    .join('|');
-
-  const avgLat = sampled.reduce((s, p) => s + parseFloat(p.latitude), 0) / sampled.length;
-  const avgLng = sampled.reduce((s, p) => s + parseFloat(p.longitude), 0) / sampled.length;
-
-  const u = new URL('https://quickchart.io/map');
-  u.searchParams.set('width', width);
-  u.searchParams.set('height', height);
-  u.searchParams.set('center', `${avgLat},${avgLng}`);
-  u.searchParams.set('zoom', 10);
-  u.searchParams.set('path', `color:0x${stroke}|weight:${weight}|${path}`);
-  u.searchParams.set('markers', markers);
-  return u.toString();
 }
 
 // Main handler
@@ -138,7 +93,7 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
-    // /last <uid>
+    // /last <uid> → SADECE SON 24 SAAT
     const mLast = text.match(/^\/last\s+(\S+)$/i);
     if (mLast) {
       const uid = mLast[1];
@@ -150,13 +105,7 @@ export default async function handler(req, res) {
         return res.status(200).end();
       }
 
-      // 🌍 QuickChart haritası gönder
-      const mapUrl = buildQuickChartMapURL(data);
-      if (mapUrl) {
-        await sendPhoto(chatId, mapUrl, `📍 Son 24 saatlik rota (${data.length} nokta)`);
-      }
-
-      // Eski liste gönderimi
+      // Telegram mesaj limiti için parçalayarak gönder
       const lines = data.map(formatPoint);
       let chunk = "";
       for (const line of lines) {
@@ -170,7 +119,7 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
-    // /all <uid>
+    // /all <uid> → mevcut davranış (son 10 kaydı özetle)
     const mAll = text.match(/^\/all\s+(\S+)$/i);
     if (mAll) {
       const uid = mAll[1];
@@ -184,7 +133,6 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
   } catch (e) {
-    console.error("Handler error:", e);
     await sendMessage(chatId, "🚨 Sunucu hatası: " + e.message);
   }
   return res.status(200).end();
