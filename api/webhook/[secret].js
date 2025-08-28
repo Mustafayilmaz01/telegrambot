@@ -42,6 +42,14 @@ async function sendMessage(chatId, text, options = {}) {
   });
 }
 
+async function sendPhoto(chatId, photoUrl, caption = "") {
+  await fetch(`${TG_API}/sendPhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption }),
+  });
+}
+
 async function readAllPositions(db, uid) {
   const snap = await db.collection("users").doc(uid).collection("positions_uploads").get();
   let merged = [];
@@ -61,6 +69,29 @@ function filterLast24h(positions) {
     .filter((p) => p.__d && p.__d >= cutoff && p.__d <= now)
     .sort((a, b) => a.__d - b.__d)
     .map(({ __d, ...rest }) => rest);
+}
+
+// 🌍 QuickChart harita URL’si oluşturucu
+function buildQuickChartMapURL(points, {
+  width = 800, height = 500, stroke = 'ff0000', weight = 4,
+} = {}) {
+  if (!points || !points.length) return null;
+
+  const path = points.map(p => `${p.latitude},${p.longitude}`).join('|');
+  const markers = [points[0], points[points.length - 1]]
+    .map(p => `${p.latitude},${p.longitude}`).join('|');
+
+  const avgLat = points.reduce((s, p) => s + parseFloat(p.latitude), 0) / points.length;
+  const avgLng = points.reduce((s, p) => s + parseFloat(p.longitude), 0) / points.length;
+
+  const u = new URL('https://quickchart.io/map');
+  u.searchParams.set('width', width);
+  u.searchParams.set('height', height);
+  u.searchParams.set('center', `${avgLat},${avgLng}`);
+  u.searchParams.set('zoom', 10);
+  u.searchParams.set('path', `color:0x${stroke}|weight:${weight}|${path}`);
+  u.searchParams.set('markers', markers);
+  return u.toString();
 }
 
 // Main handler
@@ -93,7 +124,7 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
 
-    // /last <uid> → SADECE SON 24 SAAT
+    // /last <uid> → SON 24 SAAT
     const mLast = text.match(/^\/last\s+(\S+)$/i);
     if (mLast) {
       const uid = mLast[1];
@@ -105,7 +136,13 @@ export default async function handler(req, res) {
         return res.status(200).end();
       }
 
-      // Telegram mesaj limiti için parçalayarak gönder
+      // 🌍 QuickChart haritası gönder
+      const mapUrl = buildQuickChartMapURL(data);
+      if (mapUrl) {
+        await sendPhoto(chatId, mapUrl, `📍 Son 24 saatlik rota (${data.length} nokta)`);
+      }
+
+      // Mevcut text listesi (hiç bozulmadan)
       const lines = data.map(formatPoint);
       let chunk = "";
       for (const line of lines) {
