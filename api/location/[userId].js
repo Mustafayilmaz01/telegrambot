@@ -1,11 +1,20 @@
 // api/location/[userId].js
 import admin from "firebase-admin";
 
-// Firebase bağlantı - mevcut bot kodundaki aynı yapı
-let fbInited = false;
+// Firebase bağlantı - singleton pattern
+let firestoreInstance = null;
 function getFirestore() {
-  if (fbInited) return admin.firestore();
+  if (firestoreInstance) return firestoreInstance;
+  
   const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
+  
+  // Mevcut app varsa onu kullan
+  if (admin.apps.length > 0) {
+    firestoreInstance = admin.apps[0].firestore();
+    return firestoreInstance;
+  }
+  
+  // Yoksa yeni app oluştur
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: FIREBASE_PROJECT_ID,
@@ -13,8 +22,9 @@ function getFirestore() {
       privateKey: FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     }),
   });
-  fbInited = true;
-  return admin.firestore();
+  
+  firestoreInstance = admin.firestore();
+  return firestoreInstance;
 }
 
 // Bot kodundaki aynı helper'lar
