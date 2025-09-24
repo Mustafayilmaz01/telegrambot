@@ -3,6 +3,10 @@
     "api/webhook/[secret].js": {
       "memory": 128,
       "maxDuration": 10
+    },
+    "api/location/[userId].js": {
+      "memory": 128,
+      "maxDuration": 10
     }
   }
 }
