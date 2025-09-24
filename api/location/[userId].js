@@ -44,14 +44,20 @@ function filterLast24h(positions) {
 }
 
 function getTimeAgo(timestamp) {
-  const now = Date.now();
-  const diff = now - new Date(timestamp).getTime();
+  const now = new Date();
+  const locationTime = new Date(timestamp);
+  
+  // Türkiye saati için UTC+3 offset
+  const turkeyNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+  
+  const diff = turkeyNow.getTime() - locationTime.getTime();
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
   
   if (days > 0) return `${days} gün önce`;
   if (hours > 0) return `${hours} saat önce`;
+  if (minutes <= 0) return `Az önce`;
   return `${minutes} dakika önce`;
 }
 
