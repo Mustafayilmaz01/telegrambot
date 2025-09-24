@@ -1,20 +1,11 @@
 // api/location/[userId].js
 import admin from "firebase-admin";
 
-// Firebase bağlantı - singleton pattern
-let firestoreInstance = null;
+// --- Webhook'takiyle TAMAMEN AYNI Firebase kodu ---
+let fbInited = false;
 function getFirestore() {
-  if (firestoreInstance) return firestoreInstance;
-  
+  if (fbInited) return admin.firestore();
   const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
-  
-  // Mevcut app varsa onu kullan
-  if (admin.apps.length > 0) {
-    firestoreInstance = admin.apps[0].firestore();
-    return firestoreInstance;
-  }
-  
-  // Yoksa yeni app oluştur
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: FIREBASE_PROJECT_ID,
@@ -22,9 +13,8 @@ function getFirestore() {
       privateKey: FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     }),
   });
-  
-  firestoreInstance = admin.firestore();
-  return firestoreInstance;
+  fbInited = true;
+  return admin.firestore();
 }
 
 // Bot kodundaki aynı helper'lar
@@ -49,18 +39,14 @@ function filterLast24h(positions) {
   return positions
     .map((p) => ({ ...p, __d: parseTs(p.timestamp) }))
     .filter((p) => p.__d && p.__d >= cutoff && p.__d <= now)
-    .sort((a, b) => b.__d - a.__d) // En yeni önce
+    .sort((a, b) => b.__d - a.__d)
     .map(({ __d, ...rest }) => rest);
 }
 
 function getTimeAgo(timestamp) {
-  // Şu anki zamanı da Türkiye saatine çevir
   const now = new Date();
   const turkishNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-  
   const locationTime = new Date(timestamp);
-  
-  // Artık her ikisi de Türkiye saati, doğru karşılaştırma
   const diff = turkishNow.getTime() - locationTime.getTime();
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(minutes / 60);
@@ -75,7 +61,6 @@ function getTimeAgo(timestamp) {
 export default async function handler(req, res) {
   const { userId } = req.query;
   
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -94,8 +79,6 @@ export default async function handler(req, res) {
       }
       
       const db = getFirestore();
-      
-      // Bot kodundaki aynı mantık - tüm pozisyonları oku
       const allPositions = await readAllPositions(db, userId);
       
       if (!allPositions.length) {
@@ -105,7 +88,6 @@ export default async function handler(req, res) {
         });
       }
       
-      // Son 24 saat filtrele
       const last24h = filterLast24h(allPositions);
       
       if (!last24h.length) {
@@ -115,16 +97,14 @@ export default async function handler(req, res) {
         });
       }
       
-      // Mobile uygulama için formatla
       const formattedLocations = last24h.map((position, index) => {
-        // Firebase timestamp'ini Türkiye saatine çevir
         const utcTime = new Date(position.timestamp);
         const turkishTime = new Date(utcTime.getTime() + (3 * 60 * 60 * 1000));
         const turkishTimestamp = turkishTime.toISOString();
         
         return {
           id: `${userId}_${index}`,
-          timestamp: turkishTimestamp, // Türkiye saati timestamp
+          timestamp: turkishTimestamp,
           latitude: parseFloat(position.latitude),
           longitude: parseFloat(position.longitude),
           address: position.address || `${parseFloat(position.latitude).toFixed(4)}, ${parseFloat(position.longitude).toFixed(4)}`,
@@ -138,7 +118,7 @@ export default async function handler(req, res) {
         userId: userId,
         count: formattedLocations.length,
         locations: formattedLocations,
-        lastLocation: formattedLocations[0], // En yeni
+        lastLocation: formattedLocations[0],
         timeRange: '24h'
       });
       
