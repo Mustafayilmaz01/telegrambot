@@ -47,10 +47,8 @@ function getTimeAgo(timestamp) {
   const now = new Date();
   const locationTime = new Date(timestamp);
   
-  // Türkiye saati için UTC+3 offset
-  const turkeyNow = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-  
-  const diff = turkeyNow.getTime() - locationTime.getTime();
+  // Timestamp'i direkt karşılaştır
+  const diff = now.getTime() - locationTime.getTime();
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
@@ -105,15 +103,22 @@ export default async function handler(req, res) {
       }
       
       // Mobile uygulama için formatla
-      const formattedLocations = last24h.map((position, index) => ({
-        id: `${userId}_${index}`,
-        timestamp: position.timestamp,
-        latitude: parseFloat(position.latitude),
-        longitude: parseFloat(position.longitude),
-        address: position.address || `${parseFloat(position.latitude).toFixed(4)}, ${parseFloat(position.longitude).toFixed(4)}`,
-        timeAgo: getTimeAgo(position.timestamp),
-        googleMapsUrl: `https://maps.google.com/?q=${position.latitude},${position.longitude}`
-      }));
+      const formattedLocations = last24h.map((position, index) => {
+        // Firebase timestamp'ini Türkiye saatine çevir
+        const utcTime = new Date(position.timestamp);
+        const turkishTime = new Date(utcTime.getTime() + (3 * 60 * 60 * 1000));
+        const turkishTimestamp = turkishTime.toISOString();
+        
+        return {
+          id: `${userId}_${index}`,
+          timestamp: turkishTimestamp, // Türkiye saati timestamp
+          latitude: parseFloat(position.latitude),
+          longitude: parseFloat(position.longitude),
+          address: position.address || `${parseFloat(position.latitude).toFixed(4)}, ${parseFloat(position.longitude).toFixed(4)}`,
+          timeAgo: getTimeAgo(turkishTimestamp),
+          googleMapsUrl: `https://maps.google.com/?q=${position.latitude},${position.longitude}`
+        };
+      });
       
       return res.status(200).json({
         success: true,
